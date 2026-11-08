@@ -123,3 +123,7 @@ pnpm build      # full dist/ (icons + bundle + office.js + manifest)
 Layout: `src/bridge/` (typed fetch client for the bridge protocol),
 `src/citation/` (pure, unit-tested field/OOXML/CSL logic), `src/word/` (thin
 Office.js adapter), `src/ui/` (React task pane), `scripts/` (build helpers).
+
+Host-only behavior that vitest cannot cover is checked by hand — see
+[docs/smoke-checklist.md](docs/smoke-checklist.md) (sideloading, field codes,
+refresh, bibliography, style picker, read-only hosts).
