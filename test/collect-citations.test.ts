@@ -19,6 +19,16 @@ function citationField(embedValue: CitationEmbed, display: string): string {
 }
 
 describe("collectCitationNodeIds", () => {
+  it("returns an empty list for an empty document", () => {
+    expect(
+      collectCitationNodeIds(
+        scanDocumentXml(
+          `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p/></w:body></w:document>`,
+        ),
+      ),
+    ).toEqual([]);
+  });
+
   it("flattens, dedupes across fields, and keeps document order of first appearance", () => {
     const fields = scanDocumentXml(
       `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +

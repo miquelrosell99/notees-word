@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 
 // Scaffold smoke test: asserts the dist/ layout the sync server serves at /word/.
 // Requires a prior `pnpm build`.
@@ -7,6 +7,12 @@ import { existsSync, readFileSync } from "node:fs";
 describe("build output", () => {
   it("vendored office.js ships in dist/lib (no CDN at runtime)", () => {
     expect(existsSync("dist/lib/office.js")).toBe(true);
+  });
+
+  it("vendored office.js is the real library, not a stub", () => {
+    // Existence alone is vacuous — a placeholder file would pass it.
+    const { size } = statSync("dist/lib/office.js");
+    expect(size).toBeGreaterThan(50 * 1024);
   });
 
   it("dist/index.html uses relative asset URLs", () => {
