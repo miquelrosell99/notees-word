@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useCallback, useState, type FormEvent } from "react";
 import type { Bridge, BridgeResult } from "../bridge/types";
 import { citeErrorMessage, citeResult, type InsertCitationFn } from "../citation/cite";
 import { insertCitationField } from "../word/document";
@@ -41,7 +41,11 @@ export function SearchPanel({
   insertCitation = insertCitationField,
   newCitationId = () => crypto.randomUUID(),
 }: SearchPanelProps) {
-  const search = useSearch((q: string) => bridge.search(q));
+  // Stable per bridge: identity changes ONLY on a genuine re-pair. An inline
+  // arrow here would be a new closure every render, defeating the engine's
+  // same-identity check and cancelling the debounce on each keystroke.
+  const searchFn = useCallback((q: string) => bridge.search(q), [bridge]);
+  const search = useSearch(searchFn);
   const [citingId, setCitingId] = useState<string | null>(null);
   const [locator, setLocator] = useState("");
   const [citeError, setCiteError] = useState<string | null>(null);

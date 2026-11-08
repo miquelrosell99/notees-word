@@ -165,6 +165,20 @@ describe("SearchEngine", () => {
     expect(callsA).toEqual([]);
   });
 
+  it("a same-identity re-set is a no-op: the pending debounce is NOT cancelled", async () => {
+    const callsA: string[] = [];
+    const fn = (q: string): Promise<SearchResponse> => {
+      callsA.push(q);
+      return Promise.resolve({ ok: true, results: RESULTS });
+    };
+    const engine = makeEngine(fn);
+    engine.setQuery("doe");
+    engine.setSearchFn(fn); // same identity — as happens across re-renders
+    await vi.advanceTimersByTimeAsync(300);
+    expect(callsA).toEqual(["doe"]);
+    expect(engine.getView().state).toBe("results");
+  });
+
   it("rebind drops an in-flight response from the old bridge", async () => {
     const deferreds: Array<(r: SearchResponse) => void> = [];
     const engine = makeEngine(
