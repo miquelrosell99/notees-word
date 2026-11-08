@@ -1,6 +1,7 @@
 import { createBridge } from "../bridge/client";
 import { createSettingsStore } from "../settings/store";
 import { useConnection } from "./connection";
+import { SearchPanel } from "./search-panel";
 import { SettingsPanel } from "./settings-panel";
 import "./app.css";
 
@@ -34,10 +35,14 @@ export function App() {
         </span>
       </header>
       <section className="pane-body">
-        <p className="pane-placeholder">
-          Connected to the Notees bridge ({conn.styles.length} citation styles
-          available).
-        </p>
+        {conn.bridge !== null ? (
+          <SearchPanel bridge={conn.bridge} styleId={conn.settings.styleId} />
+        ) : (
+          <p className="pane-placeholder">
+            Connected to the Notees bridge ({conn.styles.length} citation styles
+            available).
+          </p>
+        )}
       </section>
     </main>
   );

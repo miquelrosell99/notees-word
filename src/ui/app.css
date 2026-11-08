@@ -135,3 +135,69 @@ a:focus-visible {
   outline: 2px solid #0f62fe;
   outline-offset: 1px;
 }
+
+/* Search pane (results + cite flow) */
+.search-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.result-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.result-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+}
+
+.result-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.result-title {
+  font-weight: 600;
+}
+
+.result-sub {
+  font-size: 12px;
+  color: #555;
+}
+
+.cite-form {
+  display: flex;
+  gap: 6px;
+}
+
+button.secondary {
+  padding: 6px 10px;
+  border: 1px solid #c8c8c8;
+  border-radius: 4px;
+  background: #ffffff;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.cite-button {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px solid #0f62fe;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #0f62fe;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
