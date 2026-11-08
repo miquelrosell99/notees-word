@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { BridgeOfflineError } from "../bridge/client";
 import type { Bridge, BridgeResult } from "../bridge/types";
-import type { CitationEmbed } from "../citation/embed";
+import { citeErrorMessage, citeResult, type InsertCitationFn } from "../citation/cite";
 import { insertCitationField } from "../word/document";
 import { useSearch, type SearchError } from "./use-search";
 
@@ -9,7 +8,7 @@ export interface SearchPanelProps {
   bridge: Bridge;
   styleId: string;
   /** Injectable for tests — defaults to the real Word-host insert. */
-  insertCitation?: (embed: CitationEmbed, displayText: string) => Promise<void>;
+  insertCitation?: InsertCitationFn;
   /**
    * Caller-owned citationId minting: a fresh id per insert, injected so tests
    * can pin it (duplicate citationIds would silently corrupt cite/refresh
@@ -34,12 +33,6 @@ function searchErrorMessage(error: SearchError): string {
     case "bridge":
       return `Search failed (${error.code}): ${error.message}`;
   }
-}
-
-function renderErrorMessage(error: { code: string; message: string }): string {
-  return error.code === "shape"
-    ? `Bridge returned an unexpected payload: ${error.message}`
-    : `Could not render the citation (${error.code}): ${error.message}`;
 }
 
 export function SearchPanel({
@@ -70,30 +63,22 @@ export function SearchPanel({
     if (busy) return;
     setBusy(true);
     setCiteError(null);
-    const loc = locator.trim() === "" ? undefined : locator.trim();
-    try {
-      const res = await bridge.renderCitation([r.objectId], styleId, loc);
-      if (!res.ok) {
-        setCiteError(renderErrorMessage(res.error));
-        return;
-      }
-      await insertCitation(
-        { citationId: newCitationId(), nodeIds: [r.objectId], styleId, locator: loc },
-        res.citation,
-      );
+    const outcome = await citeResult(
+      {
+        renderCitation: (objectIds, styleId, locator) =>
+          bridge.renderCitation(objectIds, styleId, locator),
+        insertCitation,
+        newCitationId,
+      },
+      { objectId: r.objectId, styleId, locator },
+    );
+    if (outcome.ok) {
       setCitingId(null);
       setLocator("");
-    } catch (e) {
-      setCiteError(
-        e instanceof BridgeOfflineError
-          ? "Bridge offline — is notees serve running?"
-          : e instanceof Error
-            ? e.message
-            : String(e),
-      );
-    } finally {
-      setBusy(false);
+    } else {
+      setCiteError(citeErrorMessage(outcome.error));
     }
+    setBusy(false);
   }
 
   return (

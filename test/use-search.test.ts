@@ -130,4 +130,71 @@ describe("SearchEngine", () => {
     await vi.advanceTimersByTimeAsync(300);
     expect(engine.getView().error).toEqual({ kind: "shape", message: "missing ok flag" });
   });
+
+  it("follows a rebind: after setSearchFn, the next search calls the new searchFn", async () => {
+    const callsA: string[] = [];
+    const callsB: string[] = [];
+    const engine = makeEngine((q) => {
+      callsA.push(q);
+      return Promise.resolve({ ok: true, results: RESULTS });
+    });
+    engine.setQuery("first");
+    await vi.advanceTimersByTimeAsync(300);
+    expect(callsA).toEqual(["first"]);
+
+    engine.setSearchFn((q) => {
+      callsB.push(q);
+      return Promise.resolve({ ok: true, results: [] });
+    });
+    engine.setQuery("second");
+    await vi.advanceTimersByTimeAsync(300);
+    expect(callsA).toEqual(["first"]);
+    expect(callsB).toEqual(["second"]);
+    expect(engine.getView().query).toBe("second");
+  });
+
+  it("rebind cancels a pending debounce before it fires", async () => {
+    const callsA: string[] = [];
+    const engine = makeEngine((q) => {
+      callsA.push(q);
+      return Promise.resolve({ ok: true, results: [] });
+    });
+    engine.setQuery("pending");
+    engine.setSearchFn(() => Promise.resolve({ ok: true, results: [] }));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(callsA).toEqual([]);
+  });
+
+  it("rebind drops an in-flight response from the old bridge", async () => {
+    const deferreds: Array<(r: SearchResponse) => void> = [];
+    const engine = makeEngine(
+      (_q) =>
+        new Promise<SearchResponse>((resolve) => {
+          deferreds.push(resolve);
+        }),
+    );
+    engine.setQuery("inflight");
+    await vi.advanceTimersByTimeAsync(300);
+    expect(engine.getView().state).toBe("loading");
+
+    engine.setSearchFn(() => Promise.resolve({ ok: true, results: [] }));
+    deferreds[0]({ ok: true, results: RESULTS });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(engine.getView().state).toBe("loading"); // old-bridge result not applied
+    expect(engine.getView().results).toEqual([]);
+  });
+
+  it("keeps the raw query text in state and trims only at the debounce boundary", async () => {
+    const calls: string[] = [];
+    const engine = makeEngine((q) => {
+      calls.push(q);
+      return Promise.resolve({ ok: true, results: RESULTS });
+    });
+    engine.setQuery("doe ");
+    expect(engine.getView().query).toBe("doe "); // not rewritten mid-edit
+    await vi.advanceTimersByTimeAsync(300);
+    expect(calls).toEqual(["doe"]);
+    expect(engine.getView().query).toBe("doe ");
+    expect(engine.getView().state).toBe("results");
+  });
 });
