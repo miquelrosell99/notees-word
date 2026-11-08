@@ -119,7 +119,14 @@ export function App() {
         setRestyleIsError(true);
         return;
       }
-      const outcome = await restyleAllCitations(bridge, access, conn.settings.styleId);
+      // The engine validates the persisted pick against the loaded style list
+      // before any rewrite — a stale styleId must never re-embed citations.
+      const outcome = await restyleAllCitations(
+        bridge,
+        access,
+        conn.settings.styleId,
+        conn.styles.map((s) => s.id),
+      );
       setRestyleNote(describeRestyleOutcome(outcome));
       await rescan();
     } catch (e) {

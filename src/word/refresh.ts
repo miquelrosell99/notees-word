@@ -1,18 +1,17 @@
 import { BridgeOfflineError } from "../bridge/client";
 import type { Bridge, BridgeResponse } from "../bridge/types";
-import { planRefresh } from "../citation/refresh-plan";
+import { planRefresh, isSkippedField } from "../citation/refresh-plan";
 import {
   buildCitationCode,
-  parseCitationCode,
   withStyle,
 } from "../citation/embed";
-import { scanDocumentXml, type ScannedField } from "../citation/ooxml";
+import { scanDocumentXml, classify, type ScannedField } from "../citation/ooxml";
 import { CapabilityError, scanDocument } from "./document";
 
 export interface RefreshOutcome {
   /** Fields whose display text was rewritten from a fresh render. */
   refreshed: number;
-  /** Foreign/corrupted fields left untouched. */
+  /** Foreign/corrupted citation-code fields left untouched (never bibliographies). */
   skipped: number;
   /** Fields whose render or update failed; their existing text is preserved. */
   failed: number;
@@ -58,7 +57,7 @@ export async function refreshCitations(
   const plan = planRefresh(fields);
   const outcome: RefreshOutcome = {
     refreshed: 0,
-    skipped: fields.length - plan.length,
+    skipped: fields.filter(isSkippedField).length,
     failed: 0,
   };
   for (const entry of plan) {
@@ -102,9 +101,10 @@ export interface RestyleRewriteOutcome {
 /**
  * Rewrite every well-formed citation field's embed to carry `styleId` —
  * the explicit half of "Refresh all with this style". Never throws and never
- * corrupts: a code that does not parse to a citation embed (foreign field or
- * hand-corrupted JSON) is skipped byte-identical, same classification as
- * refresh; a host rejection of one rewrite counts as failed and never
+ * corrupts: the SAME `classify` scanDocument uses decides what counts — a
+ * foreign or hand-corrupted code is skipped byte-identical and reported in
+ * `skipped`, a bibliography field is simply not a citation and is left alone
+ * uncounted; a host rejection of one rewrite counts as failed and never
  * aborts the remaining fields. A scan failure reports a zero outcome.
  */
 export async function rewriteCitationStyles(
@@ -119,9 +119,9 @@ export async function rewriteCitationStyles(
   }
   const outcome: RestyleRewriteOutcome = { rewritten: 0, skipped: 0, failed: 0 };
   for (const [index, field] of raw.entries()) {
-    const embed = parseCitationCode(field.code.trim());
-    if (embed === null) {
-      outcome.skipped += 1;
+    const { kind, embed } = classify(field.code.trim());
+    if (kind !== "citation" || embed === null || !("nodeIds" in embed)) {
+      if (kind === "foreign") outcome.skipped += 1;
       continue;
     }
     try {
@@ -135,29 +135,52 @@ export async function rewriteCitationStyles(
 }
 
 export interface RestyleOutcome extends RestyleRewriteOutcome {
-  /** The refresh run over the just-rewritten embeds. */
+  /**
+   * "restyled": the rewrite ran and refresh re-rendered from the new embeds.
+   * "unknown-style": `styleId` was not in the bridge's loaded style list, so
+   * NOTHING was rewritten or refreshed — the document is untouched (the
+   * persisted pick went stale: style removed from the styles dir, re-paired
+   * workspace, …).
+   */
+  status: "restyled" | "unknown-style";
+  /** The refresh run over the just-rewritten embeds (zeroed for unknown-style). */
   refresh: RefreshOutcome;
 }
 
 /**
- * "Refresh all with this style": first rewrite every citation embed's
- * styleId in the field code, then run the normal refresh so each field
- * re-renders from its own (now updated) embed. Both halves go through the
- * same WordFieldAccess seam, so a read-only host degrades exactly like
- * refresh does.
+ * "Refresh all with this style": validate `styleId` against the bridge's
+ * loaded style list FIRST — an unknown style must never reach the rewrite
+ * pass (it would re-embed every citation in an unrenderable style). Only a
+ * known style rewrites every citation embed's styleId in the field code and
+ * then runs the normal refresh so each field re-renders from its own (now
+ * updated) embed. Both halves go through the same WordFieldAccess seam, so a
+ * read-only host degrades exactly like refresh does.
  */
 export async function restyleAllCitations(
   bridge: Bridge,
   fieldsApi: WordFieldAccess,
   styleId: string,
+  knownStyleIds: string[],
 ): Promise<RestyleOutcome> {
+  if (!knownStyleIds.includes(styleId)) {
+    return {
+      status: "unknown-style",
+      rewritten: 0,
+      skipped: 0,
+      failed: 0,
+      refresh: { refreshed: 0, skipped: 0, failed: 0 },
+    };
+  }
   const rewrite = await rewriteCitationStyles(fieldsApi, styleId);
   const refresh = await refreshCitations(bridge, fieldsApi);
-  return { ...rewrite, refresh };
+  return { status: "restyled", ...rewrite, refresh };
 }
 
 /** Pane copy for a restyle run: "3 restyled · 3 refreshed · 0 skipped (foreign/corrupted) · 0 failed". */
 export function describeRestyleOutcome(outcome: RestyleOutcome): string {
+  if (outcome.status === "unknown-style") {
+    return "The picked style is not available from the bridge — nothing was rewritten. Reload styles and pick a listed one.";
+  }
   return `${String(outcome.rewritten)} restyled · ${String(outcome.refresh.refreshed)} refreshed · ${String(outcome.skipped + outcome.refresh.skipped)} skipped (foreign/corrupted) · ${String(outcome.failed + outcome.refresh.failed)} failed`;
 }
 

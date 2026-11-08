@@ -93,6 +93,16 @@ export function reconcileStyleId(current: string, styles: CitationStyle[]): stri
   return styles[0]?.id ?? "apa";
 }
 
+/**
+ * Whether the persisted pick is still offered by the bridge. Restyling
+ * rewrites every citation embed to this styleId, so an unknown one (style
+ * removed from the styles dir, re-paired workspace) must gate the action off
+ * in the pane — and the engine re-checks the same list before rewriting.
+ */
+export function isKnownStyleId(styleId: string, styles: CitationStyle[]): boolean {
+  return styles.some((s) => s.id === styleId);
+}
+
 export function useConnection({
   createBridge,
   store,

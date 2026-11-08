@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { reconcileStyleId, type Connection } from "./connection";
+import { isKnownStyleId, reconcileStyleId, type Connection } from "./connection";
 
 export interface StylePickerProps {
   connection: Connection;
@@ -30,6 +30,10 @@ export function StylePicker({
   // Survive a styles list that no longer carries the persisted selection
   // (display falls back to first, else apa; reloadStyles persists it).
   const selected = reconcileStyleId(settings.styleId, styles);
+  // Restyle rewrites every citation embed to the persisted pick, so the
+  // action is gated off — with an honest note, never hidden — when that pick
+  // is not in the bridge's current list (style removed, re-paired workspace).
+  const styleKnown = isKnownStyleId(settings.styleId, styles);
 
   async function onReload() {
     if (reloading) return;
@@ -71,11 +75,17 @@ export function StylePicker({
           type="button"
           className="secondary"
           onClick={onRestyleAll}
-          disabled={restyleBusy || bridge === null}
+          disabled={restyleBusy || bridge === null || !styleKnown}
         >
           {restyleBusy ? "Restyling…" : "Refresh all with this style"}
         </button>
       </div>
+      {!styleKnown && (
+        <p className="pane-note" role="status">
+          The saved style is not in the bridge's list, so restyling is off —
+          reload styles, then pick a listed style.
+        </p>
+      )}
       {reloadNote !== null && (
         <p className="form-error" role="alert">{reloadNote}</p>
       )}

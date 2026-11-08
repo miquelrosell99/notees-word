@@ -7,13 +7,6 @@ export class BridgeOfflineError extends Error {
     this.name = "BridgeOfflineError";
   }
 }
-export class BridgeErrorResponse extends Error {
-  readonly kind = "error" as const;
-  constructor(readonly code: string, message: string) {
-    super(message);
-    this.name = "BridgeErrorResponse";
-  }
-}
 export class BridgeShapeError extends Error {
   readonly kind = "shape" as const;
   constructor(readonly detail: string) {

@@ -6,7 +6,7 @@ import {
   withStyle,
   type CitationEmbed,
 } from "../src/citation/embed";
-import { reconcileStyleId, type CitationStyle } from "../src/ui/connection";
+import { reconcileStyleId, isKnownStyleId, type CitationStyle } from "../src/ui/connection";
 import {
   describeRestyleOutcome,
   refreshCitations,
@@ -19,6 +19,10 @@ type RenderResponse = BridgeResponse<{ citation: string }>;
 
 const ZOTERO_CODE = 'ADDIN ZOTERO_ITEM {"id":123} CSL_CITATION {}';
 const CORRUPTED_CODE = 'ADDIN notees.Citation {"citationId":"c9","nodeIds":["n1"],"styleId'; // truncated JSON — user-tampered
+const BIBLIOGRAPHY_CODE = 'ADDIN notees.Bibliography {"styleId":"apa"}';
+
+/** The styles the bridge lists in these tests. */
+const KNOWN_STYLE_IDS = ["apa", "chicago", "mla"];
 
 const EMBED_APA: CitationEmbed = { citationId: "c1", nodeIds: ["n1"], styleId: "apa", locator: "p. 12" };
 const EMBED_CHICAGO: CitationEmbed = {
@@ -155,6 +159,19 @@ describe("rewriteCitationStyles (fake WordFieldAccess)", () => {
     expect(parseCitationCode(fields[1].code)).toEqual({ ...EMBED_CHICAGO, styleId: "mla" });
   });
 
+  it("a bibliography field is not a citation: left untouched and not counted as skipped", async () => {
+    const { access, fields, codeUpdates } = makeFieldsAccess([
+      { code: buildCitationCode(EMBED_APA), resultText: "old-1" },
+      { code: BIBLIOGRAPHY_CODE, resultText: "References…" },
+    ]);
+
+    const outcome = await rewriteCitationStyles(access, "mla");
+
+    expect(outcome).toEqual({ rewritten: 1, skipped: 0, failed: 0 });
+    expect(codeUpdates.map((u) => u.index)).toEqual([0]);
+    expect(fields[1]).toEqual({ code: BIBLIOGRAPHY_CODE, resultText: "References…" });
+  });
+
   it("never throws: a listFields failure reports a zero outcome", async () => {
     const access: WordFieldAccess = {
       listFields: () => Promise.reject(new Error("getOoxml rejected by host")),
@@ -179,9 +196,10 @@ describe("restyleAllCitations (rewrite embeds → refresh)", () => {
       { code: ZOTERO_CODE, resultText: "(Smith, 2020)" },
     ]);
 
-    const outcome = await restyleAllCitations(stubBridge(), access, "mla");
+    const outcome = await restyleAllCitations(stubBridge(), access, "mla", KNOWN_STYLE_IDS);
 
     expect(outcome).toEqual({
+      status: "restyled",
       rewritten: 2,
       skipped: 1,
       failed: 0,
@@ -200,9 +218,54 @@ describe("restyleAllCitations (rewrite embeds → refresh)", () => {
     const { access } = makeFieldsAccess([
       { code: buildCitationCode(EMBED_APA), resultText: "old" },
     ]);
-    await restyleAllCitations(stubBridge(), access, "chicago");
+    await restyleAllCitations(stubBridge(), access, "chicago", KNOWN_STYLE_IDS);
     const outcome = await refreshCitations(stubBridge(), access);
     expect(outcome).toEqual({ refreshed: 1, skipped: 0, failed: 0 });
+  });
+
+  it("an unknown styleId rewrites nothing: no embeds touched, no renders, distinct outcome", async () => {
+    const { access, fields, codeUpdates } = makeFieldsAccess([
+      { code: buildCitationCode(EMBED_APA), resultText: "(Doe, 2024, p. 12)" },
+      { code: buildCitationCode(EMBED_CHICAGO), resultText: "(Doe & Roe, 2024)" },
+    ]);
+    const render = vi.fn(stubBridge().renderCitation);
+
+    const outcome = await restyleAllCitations(
+      { ...stubBridge(), renderCitation: render },
+      access,
+      "ghost-style", // persisted pick the current bridge no longer lists
+      KNOWN_STYLE_IDS,
+    );
+
+    expect(outcome).toEqual({
+      status: "unknown-style",
+      rewritten: 0,
+      skipped: 0,
+      failed: 0,
+      refresh: { refreshed: 0, skipped: 0, failed: 0 },
+    });
+    expect(render).not.toHaveBeenCalled(); // the refresh half never runs either
+    expect(codeUpdates).toEqual([]); // never-corrupts: embeds stay as they were
+    expect(fields[0]).toEqual({ code: buildCitationCode(EMBED_APA), resultText: "(Doe, 2024, p. 12)" });
+    expect(fields[1]).toEqual({ code: buildCitationCode(EMBED_CHICAGO), resultText: "(Doe & Roe, 2024)" });
+  });
+
+  it("a healthy 2-citation + 1-bibliography document reports 0 skipped through the whole restyle", async () => {
+    const { access } = makeFieldsAccess([
+      { code: buildCitationCode(EMBED_APA), resultText: "(Doe, 2024, p. 12)" },
+      { code: buildCitationCode(EMBED_CHICAGO), resultText: "(Doe & Roe, 2024)" },
+      { code: BIBLIOGRAPHY_CODE, resultText: "References…" },
+    ]);
+
+    const outcome = await restyleAllCitations(stubBridge(), access, "mla", KNOWN_STYLE_IDS);
+
+    expect(outcome).toEqual({
+      status: "restyled",
+      rewritten: 2,
+      skipped: 0,
+      failed: 0,
+      refresh: { refreshed: 2, skipped: 0, failed: 0 },
+    });
   });
 });
 
@@ -210,11 +273,43 @@ describe("describeRestyleOutcome", () => {
   it("formats the pane summary", () => {
     expect(
       describeRestyleOutcome({
+        status: "restyled",
         rewritten: 3,
         skipped: 1,
         failed: 0,
         refresh: { refreshed: 3, skipped: 1, failed: 2 },
       }),
     ).toBe("3 restyled · 3 refreshed · 2 skipped (foreign/corrupted) · 2 failed");
+  });
+
+  it("an unknown-style run says nothing was rewritten and how to recover", () => {
+    expect(
+      describeRestyleOutcome({
+        status: "unknown-style",
+        rewritten: 0,
+        skipped: 0,
+        failed: 0,
+        refresh: { refreshed: 0, skipped: 0, failed: 0 },
+      }),
+    ).toContain("nothing was rewritten");
+  });
+});
+
+describe("isKnownStyleId (pure) — the UI gate for restyling", () => {
+  const styles: CitationStyle[] = [
+    { id: "chicago", label: "Chicago" },
+    { id: "apa", label: "APA" },
+  ];
+
+  it("accepts a pick the bridge still lists", () => {
+    expect(isKnownStyleId("apa", styles)).toBe(true);
+  });
+
+  it("rejects a stale pick the list dropped (style removed, re-paired workspace)", () => {
+    expect(isKnownStyleId("mla", styles)).toBe(false);
+  });
+
+  it("rejects everything when the list is empty (reload needed)", () => {
+    expect(isKnownStyleId("apa", [])).toBe(false);
   });
 });

@@ -132,6 +132,21 @@ describe("refreshCitations (fake WordFieldAccess + stub bridge)", () => {
     expect(fields[1]).toEqual({ code: CORRUPTED_CODE, resultText: "user-typed text" });
   });
 
+  it("a bibliography field is not a 'skipped citation': healthy 2-citation + bibliography doc reports skipped:0", async () => {
+    const { access, fields, updated } = makeFieldsAccess([
+      { code: buildCitationCode(EMBED_1), resultText: "old-1" },
+      { code: 'ADDIN notees.Bibliography {"styleId":"apa"}', resultText: "References…" },
+      { code: buildCitationCode(EMBED_2), resultText: "old-2" },
+    ]);
+    const bridge = stubBridge(() => Promise.resolve({ ok: true, citation: "rendered" }));
+
+    const outcome = await refreshCitations(bridge, access);
+
+    expect(outcome).toEqual({ refreshed: 2, skipped: 0, failed: 0 });
+    expect(updated.map((u) => u.index)).toEqual([0, 2]); // the bibliography is never touched
+    expect(fields[1].resultText).toBe("References…");
+  });
+
   it("bridge ok:false for one embed reports failed:1, leaves that text unchanged, still refreshes the others", async () => {
     const { access, fields, updated } = makeFieldsAccess([
       { code: buildCitationCode(EMBED_1), resultText: "old-1" },

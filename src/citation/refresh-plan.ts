@@ -17,6 +17,18 @@ export interface RefreshPlanEntry {
  * v1 renders once per planned field; batching renders by distinct styleId is
  * a recorded optimization, not this task.
  */
+/**
+ * The fields refresh reports as "skipped (foreign/corrupted)": foreign codes
+ * (Zotero, …) and hand-corrupted notees citation codes — both classify as
+ * kind "foreign" — plus any citation-kind field whose embed failed to parse.
+ * Bibliography fields are healthy non-citations: refresh leaves them alone
+ * but they are NOT "skipped citations" and never enter that count.
+ */
+export function isSkippedField(field: Pick<ScannedField, "kind" | "embed">): boolean {
+  if (field.kind === "citation") return field.embed === null || !("nodeIds" in field.embed);
+  return field.kind === "foreign";
+}
+
 export function planRefresh(fields: ScannedField[]): RefreshPlanEntry[] {
   const plan: RefreshPlanEntry[] = [];
   fields.forEach((field, fieldIndex) => {
