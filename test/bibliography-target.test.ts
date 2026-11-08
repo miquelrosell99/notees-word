@@ -70,6 +70,10 @@ function makeFieldsAccess(initial: { code: string; resultText: string }[]) {
       fields[index].resultText = text;
       return Promise.resolve();
     },
+    updateCode: (index, code) => {
+      fields[index].code = code;
+      return Promise.resolve();
+    },
   };
   return { access, fields };
 }
@@ -208,6 +212,7 @@ describe("insertOrReplaceBibliography (fake seams)", () => {
     const brokenAccess: WordFieldAccess = {
       listFields: () => Promise.reject(new Error("getOoxml rejected by host")),
       updateResultText: () => Promise.resolve(),
+      updateCode: () => Promise.resolve(),
     };
     expect(await insertOrReplaceBibliography(bridge, "apa", brokenAccess, rejectingWriter)).toEqual({
       status: "scan-failed",

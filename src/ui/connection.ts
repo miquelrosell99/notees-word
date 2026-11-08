@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Bridge, BridgeError } from "../bridge/types";
+import type { Bridge, BridgeError, BridgeResponse } from "../bridge/types";
 import { BridgeOfflineError } from "../bridge/client";
 import type { AddinSettings, SettingsStore } from "../settings/store";
 
@@ -77,6 +77,20 @@ export interface Connection {
   bridge: Bridge | null;
   styles: CitationStyle[];
   connect(port: number, token: string): Promise<void>;
+  /** Persist the picked citation style — applied to NEW citations only. */
+  setStyleId(styleId: string): void;
+  /** Re-fetch the style list from the bridge; reconciles the selection. */
+  reloadStyles(): Promise<boolean>;
+}
+
+/**
+ * The picker's selection after a styles reload: keep the current style when
+ * the bridge still offers it; fall back to the first listed style; fall back
+ * to "apa" (the settings-store default) when the list came back empty.
+ */
+export function reconcileStyleId(current: string, styles: CitationStyle[]): string {
+  if (styles.some((s) => s.id === current)) return current;
+  return styles[0]?.id ?? "apa";
 }
 
 export function useConnection({
@@ -117,5 +131,29 @@ export function useConnection({
     if (saved.token) void connect(saved.port, saved.token);
   }, [autoConnect, store, connect]);
 
-  return { connection, settings, bridge, styles, connect };
+  const setStyleId = useCallback(
+    (styleId: string) => {
+      setSettings(store.save({ styleId }));
+    },
+    [store],
+  );
+
+  const reloadStyles = useCallback(async (): Promise<boolean> => {
+    const b = bridge;
+    if (b === null) return false;
+    let res: BridgeResponse<{ styles: CitationStyle[] }>;
+    try {
+      res = await b.listStyles();
+    } catch {
+      // Bridge went away mid-session: keep the cached list, report the miss.
+      return false;
+    }
+    if (!res.ok) return false;
+    setStyles(res.styles);
+    const next = reconcileStyleId(store.load().styleId, res.styles);
+    if (next !== store.load().styleId) setSettings(store.save({ styleId: next }));
+    return true;
+  }, [bridge, store]);
+
+  return { connection, settings, bridge, styles, connect, setStyleId, reloadStyles };
 }

@@ -27,6 +27,7 @@ function foreignField(code: string, displayText: string): ScannedField {
 function makeFieldsAccess(initial: { code: string; resultText: string }[]) {
   const fields = initial.map((f) => ({ ...f }));
   const updated: Array<{ index: number; text: string }> = [];
+  const codeUpdates: Array<{ index: number; code: string }> = [];
   const access: WordFieldAccess = {
     listFields: () => Promise.resolve(fields.map((f) => ({ code: f.code, resultText: f.resultText }))),
     updateResultText: (index, text) => {
@@ -34,8 +35,13 @@ function makeFieldsAccess(initial: { code: string; resultText: string }[]) {
       fields[index].resultText = text;
       return Promise.resolve();
     },
+    updateCode: (index, code) => {
+      codeUpdates.push({ index, code });
+      fields[index].code = code;
+      return Promise.resolve();
+    },
   };
-  return { access, fields, updated };
+  return { access, fields, updated, codeUpdates };
 }
 
 /** A Bridge stub whose renderCitation is scripted per test. */
@@ -191,6 +197,7 @@ describe("refreshCitations (fake WordFieldAccess + stub bridge)", () => {
     const access: WordFieldAccess = {
       listFields: () => Promise.reject(new Error("getOoxml rejected by host")),
       updateResultText: () => Promise.resolve(),
+      updateCode: () => Promise.resolve(),
     };
     const render = vi.fn((): Promise<RenderResponse> => Promise.resolve({ ok: true, citation: "x" }));
     const bridge = stubBridge(render);

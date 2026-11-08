@@ -6,10 +6,11 @@ import {
   describeBibliographyOutcome,
   insertOrReplaceBibliography,
 } from "../word/bibliography";
-import { describeRefreshOutcome, refreshCitations, wordFieldAccess } from "../word/refresh";
+import { describeRefreshOutcome, describeRestyleOutcome, refreshCitations, restyleAllCitations, wordFieldAccess } from "../word/refresh";
 import { useConnection } from "./connection";
 import { SearchPanel } from "./search-panel";
 import { SettingsPanel } from "./settings-panel";
+import { StylePicker } from "./style-picker";
 import "./app.css";
 
 const store = createSettingsStore({
@@ -24,6 +25,9 @@ export function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
   const [refreshIsError, setRefreshIsError] = useState(false);
+  const [restyleBusy, setRestyleBusy] = useState(false);
+  const [restyleNote, setRestyleNote] = useState<string | null>(null);
+  const [restyleIsError, setRestyleIsError] = useState(false);
   const [bibliographyBusy, setBibliographyBusy] = useState(false);
   const [bibliographyNote, setBibliographyNote] = useState<string | null>(null);
   const [bibliographyIsError, setBibliographyIsError] = useState(false);
@@ -52,6 +56,32 @@ export function App() {
       setRefreshIsError(true);
     } finally {
       setRefreshing(false);
+    }
+  }
+
+  async function onRestyleAll() {
+    const bridge = conn.bridge;
+    if (bridge === null || restyleBusy) return;
+    setRestyleBusy(true);
+    setRestyleNote(null);
+    setRestyleIsError(false);
+    try {
+      const { access, writable } = wordFieldAccess();
+      if (!writable) {
+        // Same read-only degradation as refresh: the document is never touched.
+        setRestyleNote(
+          "Restyling needs the Word desktop app — citation fields are read-only in this host.",
+        );
+        setRestyleIsError(true);
+        return;
+      }
+      const outcome = await restyleAllCitations(bridge, access, conn.settings.styleId);
+      setRestyleNote(describeRestyleOutcome(outcome));
+    } catch (e) {
+      setRestyleNote(e instanceof Error ? e.message : String(e));
+      setRestyleIsError(true);
+    } finally {
+      setRestyleBusy(false);
     }
   }
 
@@ -103,6 +133,13 @@ export function App() {
         </span>
       </header>
       <section className="pane-body">
+        <StylePicker
+          connection={conn}
+          onRestyleAll={() => void onRestyleAll()}
+          restyleBusy={restyleBusy}
+          restyleNote={restyleNote}
+          restyleIsError={restyleIsError}
+        />
         <div className="refresh-row">
           <button
             type="button"

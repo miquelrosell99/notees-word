@@ -1,6 +1,11 @@
 import { BridgeOfflineError } from "../bridge/client";
 import type { Bridge, BridgeResponse } from "../bridge/types";
 import { planRefresh } from "../citation/refresh-plan";
+import {
+  buildCitationCode,
+  parseCitationCode,
+  withStyle,
+} from "../citation/embed";
 import { classify, scanDocumentXml, type ScannedField } from "../citation/ooxml";
 import { CapabilityError } from "./document";
 
@@ -16,13 +21,16 @@ export interface RefreshOutcome {
 /**
  * The ONLY Word-runtime seam refresh goes through. `listFields` returns every
  * field's instruction code + current display text in stable document order;
- * `updateResultText` rewrites the display text of the field at that index.
- * Implemented over `body.fields` (Word desktop) and over a read-only OOXML
- * scan (other hosts) — and faked in tests, which is why this is an interface.
+ * `updateResultText` rewrites the display text of the field at that index;
+ * `updateCode` rewrites the field's instruction code (used by the explicit
+ * restyle action). Implemented over `body.fields` (Word desktop) and over a
+ * read-only OOXML scan (other hosts) — and faked in tests, which is why this
+ * is an interface.
  */
 export interface WordFieldAccess {
   listFields(): Promise<{ code: string; resultText: string }[]>;
   updateResultText(index: number, text: string): Promise<void>;
+  updateCode(index: number, code: string): Promise<void>;
 }
 
 /**
@@ -88,6 +96,77 @@ export function describeRefreshOutcome(outcome: RefreshOutcome): string {
   return `${String(outcome.refreshed)} refreshed · ${String(outcome.skipped)} skipped (foreign/corrupted) · ${String(outcome.failed)} failed`;
 }
 
+export interface RestyleRewriteOutcome {
+  /** Citation fields whose embed code was rewritten to the picked style. */
+  rewritten: number;
+  /** Foreign/corrupted fields left untouched. */
+  skipped: number;
+  /** Code rewrites rejected by the host; the field keeps its old code. */
+  failed: number;
+}
+
+/**
+ * Rewrite every well-formed citation field's embed to carry `styleId` —
+ * the explicit half of "Refresh all with this style". Never throws and never
+ * corrupts: a code that does not parse to a citation embed (foreign field or
+ * hand-corrupted JSON) is skipped byte-identical, same classification as
+ * refresh; a host rejection of one rewrite counts as failed and never
+ * aborts the remaining fields. A scan failure reports a zero outcome.
+ */
+export async function rewriteCitationStyles(
+  fieldsApi: WordFieldAccess,
+  styleId: string,
+): Promise<RestyleRewriteOutcome> {
+  let raw: { code: string; resultText: string }[];
+  try {
+    raw = await fieldsApi.listFields();
+  } catch {
+    return { rewritten: 0, skipped: 0, failed: 0 };
+  }
+  const outcome: RestyleRewriteOutcome = { rewritten: 0, skipped: 0, failed: 0 };
+  for (const [index, field] of raw.entries()) {
+    const embed = parseCitationCode(field.code.trim());
+    if (embed === null) {
+      outcome.skipped += 1;
+      continue;
+    }
+    try {
+      await fieldsApi.updateCode(index, buildCitationCode(withStyle(embed, styleId)));
+      outcome.rewritten += 1;
+    } catch {
+      outcome.failed += 1;
+    }
+  }
+  return outcome;
+}
+
+export interface RestyleOutcome extends RestyleRewriteOutcome {
+  /** The refresh run over the just-rewritten embeds. */
+  refresh: RefreshOutcome;
+}
+
+/**
+ * "Refresh all with this style": first rewrite every citation embed's
+ * styleId in the field code, then run the normal refresh so each field
+ * re-renders from its own (now updated) embed. Both halves go through the
+ * same WordFieldAccess seam, so a read-only host degrades exactly like
+ * refresh does.
+ */
+export async function restyleAllCitations(
+  bridge: Bridge,
+  fieldsApi: WordFieldAccess,
+  styleId: string,
+): Promise<RestyleOutcome> {
+  const rewrite = await rewriteCitationStyles(fieldsApi, styleId);
+  const refresh = await refreshCitations(bridge, fieldsApi);
+  return { ...rewrite, refresh };
+}
+
+/** Pane copy for a restyle run: "3 restyled · 3 refreshed · 0 skipped (foreign/corrupted) · 0 failed". */
+export function describeRestyleOutcome(outcome: RestyleOutcome): string {
+  return `${String(outcome.rewritten)} restyled · ${String(outcome.refresh.refreshed)} refreshed · ${String(outcome.skipped + outcome.refresh.skipped)} skipped (foreign/corrupted) · ${String(outcome.failed + outcome.refresh.failed)} failed`;
+}
+
 /**
  * Desktop field access over `body.fields` (WordApi 1.5): codes and result
  * text load in one sync; an update replaces the field's result-range text,
@@ -114,15 +193,28 @@ export function bodyFieldAccess(): WordFieldAccess {
         field.result.insertText(text, Word.InsertLocation.replace);
         await context.sync();
       }),
+    updateCode: (index, code) =>
+      Word.run(async (context) => {
+        const fields = context.document.body.fields;
+        fields.load("items");
+        await context.sync();
+        const field = fields.items[index];
+        if (field === undefined) {
+          throw new CapabilityError("field-update", "Field disappeared before its code could be updated.");
+        }
+        field.code = code;
+        await context.sync();
+      }),
   };
 }
 
 /**
  * Fallback for hosts without WordApi 1.5 field access (Word for the web):
- * fields are listed via an OOXML body dump + the pure scanner, but their
- * display text cannot be rewritten — `updateResultText` rejects with a
- * CapabilityError. Refresh on such a host reports the degradation up front
- * and never touches the document.
+ * fields are listed via an OOXML body dump + the pure scanner, but neither
+ * their display text nor their field code can be rewritten —
+ * `updateResultText`/`updateCode` reject with a CapabilityError. Refresh and
+ * restyle on such a host report the degradation up front and never touch the
+ * document.
  */
 export function readOnlyFieldAccess(): WordFieldAccess {
   return {
@@ -139,6 +231,13 @@ export function readOnlyFieldAccess(): WordFieldAccess {
         new CapabilityError(
           "field-update",
           "Citation fields are read-only on this Word host — open the document in the Word desktop app to refresh.",
+        ),
+      ),
+    updateCode: () =>
+      Promise.reject(
+        new CapabilityError(
+          "field-update",
+          "Citation fields are read-only on this Word host — open the document in the Word desktop app to restyle.",
         ),
       ),
   };

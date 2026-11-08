@@ -55,3 +55,14 @@ export function parseBibliographyCode(code: string): BibliographyEmbed | null {
 export function isNoteesCitation(code: string): boolean {
   return code.startsWith(CITATION_FIELD_PREFIX);
 }
+
+/**
+ * Clone an embed with a different styleId, preserving citationId, nodeIds,
+ * locator and any forward-compatible extra keys. This is the ONLY way a
+ * style switch may reach an already-inserted citation: new citations take the
+ * picker's style at insert time; existing fields change only when the user
+ * explicitly restyles them (Review-Focus #3).
+ */
+export function withStyle(embed: CitationEmbed, styleId: string): CitationEmbed {
+  return { ...embed, styleId };
+}
