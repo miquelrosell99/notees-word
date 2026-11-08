@@ -15,7 +15,7 @@ export interface SettingsStore {
   clear(): void;
 }
 
-const DEFAULTS: AddinSettings = { port: 8377, token: "", styleId: "notees-default" };
+const DEFAULTS: AddinSettings = { port: 8474, token: "", styleId: "apa" };
 const KEY = "notees.addin.settings.v1";
 
 export function createSettingsStore(kv: KVStore): SettingsStore {

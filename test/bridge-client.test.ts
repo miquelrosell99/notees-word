@@ -12,13 +12,13 @@ function stubFetch(handler: (url: string, init: RequestInit) => unknown): typeof
 describe("createBridge", () => {
   it("posts to /document with cmd, bearer token, and merged body", async () => {
     let seen: { url: string; init: RequestInit } | null = null;
-    const b = createBridge({ port: 8377, token: "tok", fetchImpl: stubFetch((url, init) => {
+    const b = createBridge({ port: 8474, token: "tok", fetchImpl: stubFetch((url, init) => {
       seen = { url, init };
       return { ok: true, citation: "(Doe 2024)" };
     }) });
     const r = await b.renderCitation(["n1"], "apa", "p. 3");
     expect(r).toEqual({ ok: true, citation: "(Doe 2024)" });
-    expect(seen!.url).toBe("http://127.0.0.1:8377/document");
+    expect(seen!.url).toBe("http://127.0.0.1:8474/document");
     expect((seen!.init.headers as Record<string, string>).authorization).toBe("Bearer tok");
     expect(JSON.parse(seen!.init.body as string)).toEqual({ cmd: "render-citation", objectIds: ["n1"], styleId: "apa", locator: "p. 3" });
   });
@@ -62,7 +62,7 @@ describe("createBridge", () => {
 
   it("passes a 5s AbortSignal with each request", async () => {
     let seen: RequestInit | null = null;
-    const b = createBridge({ port: 8377, token: "t", fetchImpl: stubFetch((_u, init) => {
+    const b = createBridge({ port: 8474, token: "t", fetchImpl: stubFetch((_u, init) => {
       seen = init;
       return { ok: true, styles: [] };
     }) });
