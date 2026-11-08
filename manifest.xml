@@ -11,7 +11,7 @@
   <Description DefaultValue="Notees for Word — search your Notees graph, insert citations as Word fields, build bibliographies."/>
   <IconUrl DefaultValue="${HOST}/word/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="${HOST}/word/assets/icon-80.png"/>
-  <SupportUrl DefaultValue="${HOST}/word/"/>
+  <SupportUrl DefaultValue="https://github.com/miquelrosell99/notees-web"/>
   <AppDomains>
     <AppDomain>http://127.0.0.1</AppDomain>
     <AppDomain>https://localhost</AppDomain>
