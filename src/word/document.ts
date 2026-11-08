@@ -1,5 +1,6 @@
 import type { CitationEmbed } from "../citation/embed";
-import { citationFieldXml } from "../citation/ooxml";
+import { citationFieldXml, classify, type ScannedField } from "../citation/ooxml";
+import type { WordFieldAccess } from "./refresh";
 
 /** A Word-host capability is missing or the host rejected the call. */
 export class CapabilityError extends Error {
@@ -85,4 +86,19 @@ export async function insertCitationFieldWith(
 /** Selection-bound entry point used by the pane; delegates to the injectable core. */
 export async function insertCitationField(embed: CitationEmbed, displayText: string): Promise<void> {
   await insertCitationFieldWith(wordRuntime(), embed, displayText);
+}
+
+/**
+ * The ONE document-scan path: list every field through the WordFieldAccess
+ * seam, trim the instruction code, and classify with the same `classify`
+ * the OOXML scanner applies. Refresh, bibliography, and the pane's citation
+ * badge all count from this — a field is never "citation" for one surface
+ * and "foreign" for another (no second classifier anywhere).
+ */
+export async function scanDocument(fieldAccess: WordFieldAccess): Promise<ScannedField[]> {
+  const raw = await fieldAccess.listFields();
+  return raw.map((f) => {
+    const code = f.code.trim();
+    return { code, displayText: f.resultText, ...classify(code) };
+  });
 }

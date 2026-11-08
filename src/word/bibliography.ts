@@ -1,8 +1,8 @@
 import { BridgeOfflineError } from "../bridge/client";
 import type { Bridge, BridgeResponse } from "../bridge/types";
 import { collectCitationNodeIds } from "../citation/collect";
-import { bibliographyFieldXml, classify, type ScannedField } from "../citation/ooxml";
-import { CapabilityError } from "./document";
+import { bibliographyFieldXml, type ScannedField } from "../citation/ooxml";
+import { CapabilityError, scanDocument } from "./document";
 import type { WordFieldAccess } from "./refresh";
 
 export type BibliographyOutcome =
@@ -110,17 +110,12 @@ export async function insertOrReplaceBibliography(
   fieldsApi: WordFieldAccess,
   writer: BibliographyWriter,
 ): Promise<BibliographyOutcome> {
-  let raw: { code: string; resultText: string }[];
+  let fields: ScannedField[];
   try {
-    raw = await fieldsApi.listFields();
+    fields = await scanDocument(fieldsApi);
   } catch {
     return { status: "scan-failed" };
   }
-  // Same trim + classification the OOXML scanner applies.
-  const fields: ScannedField[] = raw.map((f) => {
-    const code = f.code.trim();
-    return { code, displayText: f.resultText, ...classify(code) };
-  });
   const nodeIds = collectCitationNodeIds(fields);
   if (nodeIds.length === 0) {
     // Honest "nothing to cite" — never an empty bibliography field.

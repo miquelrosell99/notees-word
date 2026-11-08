@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createBridge } from "../bridge/client";
 import { createSettingsStore } from "../settings/store";
 import {
@@ -6,8 +6,10 @@ import {
   describeBibliographyOutcome,
   insertOrReplaceBibliography,
 } from "../word/bibliography";
+import { insertCitationField, scanDocument } from "../word/document";
 import { describeRefreshOutcome, describeRestyleOutcome, refreshCitations, restyleAllCitations, wordFieldAccess } from "../word/refresh";
 import { useConnection } from "./connection";
+import { FieldBadge, countFields, type FieldCounts } from "./field-badge";
 import { SearchPanel } from "./search-panel";
 import { SettingsPanel } from "./settings-panel";
 import { StylePicker } from "./style-picker";
@@ -31,6 +33,47 @@ export function App() {
   const [bibliographyBusy, setBibliographyBusy] = useState(false);
   const [bibliographyNote, setBibliographyNote] = useState<string | null>(null);
   const [bibliographyIsError, setBibliographyIsError] = useState(false);
+  /**
+   * Host field capability, probed on pane open: true = WordApi 1.5 fields are
+   * writable (desktop), false = read-only OOXML scan host, null = not probed
+   * yet. Read-only gates refresh/restyle/bibliography (disabled with an
+   * explanation, never hidden).
+   */
+  const [fieldsWritable, setFieldsWritable] = useState<boolean | null>(null);
+  const [fieldCounts, setFieldCounts] = useState<FieldCounts | null>(null);
+  const [fieldScanning, setFieldScanning] = useState(false);
+  const [fieldScanError, setFieldScanError] = useState<string | null>(null);
+
+  // The ONE rescan path: same WordFieldAccess + scanDocument classification
+  // refresh uses, so the badge can never disagree with a later refresh.
+  const rescan = useCallback(async () => {
+    setFieldScanning(true);
+    setFieldScanError(null);
+    try {
+      const { access, writable } = wordFieldAccess();
+      setFieldsWritable(writable);
+      setFieldCounts(countFields(await scanDocument(access)));
+    } catch (e) {
+      setFieldScanError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFieldScanning(false);
+    }
+  }, []);
+
+  // Document-open scan: the pane just opened on this document.
+  useEffect(() => {
+    void rescan();
+  }, [rescan]);
+
+  // Citation insert goes through the search panel's injectable seam; a
+  // successful insert mutates the document, so the badge follows.
+  const insertCitationAndRescan = useCallback(
+    async (embed: Parameters<typeof insertCitationField>[0], displayText: string) => {
+      await insertCitationField(embed, displayText);
+      await rescan();
+    },
+    [rescan],
+  );
 
   async function onRefresh() {
     const bridge = conn.bridge;
@@ -51,6 +94,7 @@ export function App() {
       }
       const outcome = await refreshCitations(bridge, access);
       setRefreshNote(describeRefreshOutcome(outcome));
+      await rescan();
     } catch (e) {
       setRefreshNote(e instanceof Error ? e.message : String(e));
       setRefreshIsError(true);
@@ -77,6 +121,7 @@ export function App() {
       }
       const outcome = await restyleAllCitations(bridge, access, conn.settings.styleId);
       setRestyleNote(describeRestyleOutcome(outcome));
+      await rescan();
     } catch (e) {
       setRestyleNote(e instanceof Error ? e.message : String(e));
       setRestyleIsError(true);
@@ -105,6 +150,7 @@ export function App() {
       setBibliographyNote(describeBibliographyOutcome(outcome));
       // "no citations yet" is guidance, not a failure of the insert itself.
       setBibliographyIsError(outcome.status !== "inserted" && outcome.status !== "replaced" && outcome.status !== "no-citations");
+      if (outcome.status === "inserted" || outcome.status === "replaced") await rescan();
     } catch (e) {
       setBibliographyNote(e instanceof Error ? e.message : String(e));
       setBibliographyIsError(true);
@@ -128,11 +174,20 @@ export function App() {
     <main data-testid="app-shell" className="pane">
       <header className="pane-header">
         <h1 className="pane-title">Notees</h1>
-        <span className="badge" data-testid="citation-count">
-          citations: 0
-        </span>
+        <FieldBadge
+          counts={fieldCounts}
+          scanning={fieldScanning}
+          error={fieldScanError}
+          onRescan={() => void rescan()}
+        />
       </header>
       <section className="pane-body">
+        {fieldsWritable === false && (
+          <p className="pane-note" role="status">
+            This Word host can read citation fields only — inserting, refreshing,
+            and restyling them needs the Word desktop app (WordApi 1.5).
+          </p>
+        )}
         <StylePicker
           connection={conn}
           onRestyleAll={() => void onRestyleAll()}
@@ -145,7 +200,7 @@ export function App() {
             type="button"
             className="secondary"
             onClick={() => void onRefresh()}
-            disabled={refreshing || conn.bridge === null}
+            disabled={refreshing || conn.bridge === null || fieldsWritable === false}
           >
             {refreshing ? "Refreshing…" : "Refresh citations"}
           </button>
@@ -158,7 +213,7 @@ export function App() {
             type="button"
             className="secondary"
             onClick={() => void onInsertBibliography()}
-            disabled={bibliographyBusy || conn.bridge === null}
+            disabled={bibliographyBusy || conn.bridge === null || fieldsWritable === false}
           >
             {bibliographyBusy ? "Inserting bibliography…" : "Insert bibliography"}
           </button>
@@ -172,7 +227,11 @@ export function App() {
           )}
         </div>
         {conn.bridge !== null ? (
-          <SearchPanel bridge={conn.bridge} styleId={conn.settings.styleId} />
+          <SearchPanel
+            bridge={conn.bridge}
+            styleId={conn.settings.styleId}
+            insertCitation={insertCitationAndRescan}
+          />
         ) : (
           <p className="pane-placeholder">
             Connected to the Notees bridge ({conn.styles.length} citation styles

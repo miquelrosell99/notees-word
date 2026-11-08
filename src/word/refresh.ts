@@ -6,8 +6,8 @@ import {
   parseCitationCode,
   withStyle,
 } from "../citation/embed";
-import { classify, scanDocumentXml, type ScannedField } from "../citation/ooxml";
-import { CapabilityError } from "./document";
+import { scanDocumentXml, type ScannedField } from "../citation/ooxml";
+import { CapabilityError, scanDocument } from "./document";
 
 export interface RefreshOutcome {
   /** Fields whose display text was rewritten from a fresh render. */
@@ -47,24 +47,18 @@ export async function refreshCitations(
   bridge: Bridge,
   fieldsApi: WordFieldAccess,
 ): Promise<RefreshOutcome> {
-  let raw: { code: string; resultText: string }[];
+  let fields: ScannedField[];
   try {
-    raw = await fieldsApi.listFields();
+    fields = await scanDocument(fieldsApi);
   } catch {
     // The document could not be scanned at all — report zero progress rather
     // than throwing; the pane shows the scan failure from the zero outcome.
     return { refreshed: 0, skipped: 0, failed: 0 };
   }
-  // Same classification the OOXML scanner applies, so a code that scan would
-  // call foreign is skipped here too. Codes are trimmed as the scanner trims.
-  const fields: ScannedField[] = raw.map((f) => {
-    const code = f.code.trim();
-    return { code, displayText: f.resultText, ...classify(code) };
-  });
   const plan = planRefresh(fields);
   const outcome: RefreshOutcome = {
     refreshed: 0,
-    skipped: raw.length - plan.length,
+    skipped: fields.length - plan.length,
     failed: 0,
   };
   for (const entry of plan) {
