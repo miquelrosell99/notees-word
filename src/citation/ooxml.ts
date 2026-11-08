@@ -59,7 +59,8 @@ export interface ScannedField {
   embed: CitationEmbed | BibliographyEmbed | null;
 }
 
-function classify(code: string): Pick<ScannedField, "kind" | "embed"> {
+/** Classify a raw field instruction code. Exported for the refresh seam. */
+export function classify(code: string): Pick<ScannedField, "kind" | "embed"> {
   const citation = parseCitationCode(code);
   if (citation) return { kind: "citation", embed: citation };
   const bibliography = parseBibliographyCode(code);
