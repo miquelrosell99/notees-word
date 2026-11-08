@@ -78,7 +78,7 @@ export function createBridge(opts: {
     }
     if (json.ok === false) {
       const err = (json as { error?: Partial<BridgeError> }).error ?? {};
-      return { ok: false, error: { code: String(err.code ?? "unknown"), message: String(err.message ?? "unknown error") } };
+      return { ok: false, error: { code: String(err.code ?? "unknown"), message: String(err.message ?? "unknown error"), status: res.status } };
     }
     for (const k of requireKeys) {
       if (!(k in json)) throw new BridgeShapeError(`missing key ${String(k)}`);

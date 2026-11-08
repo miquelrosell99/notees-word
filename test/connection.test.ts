@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Bridge, BridgeResponse } from "../src/bridge/types";
 import { BridgeOfflineError } from "../src/bridge/client";
-import { isRejectedCode, probeBridge } from "../src/ui/connection";
+import { isRejectedCode, isRejectedError, probeBridge } from "../src/ui/connection";
 
 type ListStylesResponse = BridgeResponse<{ styles: { id: string; label: string }[] }>;
 
@@ -25,6 +25,22 @@ describe("isRejectedCode", () => {
     for (const code of ["not_found", "unknown_style", "unknown", "shape"]) {
       expect(isRejectedCode(code)).toBe(false);
     }
+  });
+});
+
+describe("isRejectedError", () => {
+  it("rejects on HTTP 401/403 even with the generic bad_request wire code", () => {
+    expect(isRejectedError({ code: "bad_request", message: "unauthorized", status: 401 })).toBe(true);
+    expect(isRejectedError({ code: "bad_request", message: "origin not allowed", status: 403 })).toBe(true);
+  });
+
+  it("still rejects on semantic codes without a status", () => {
+    expect(isRejectedError({ code: "forbidden", message: "no" })).toBe(true);
+  });
+
+  it("does not reject a bare command-level error without a status", () => {
+    expect(isRejectedError({ code: "bad_request", message: "x" })).toBe(false);
+    expect(isRejectedError({ code: "not_found", message: "x" })).toBe(false);
   });
 });
 
@@ -52,6 +68,17 @@ describe("probeBridge", () => {
     for (const code of ["unauthorized", "forbidden", "origin_denied"]) {
       const outcome = await probeBridge(
         fakeBridge(() => Promise.resolve({ ok: false, error: { code, message: "no" } }))
+      );
+      expect(outcome).toEqual({ state: "rejected" });
+    }
+  });
+
+  it("maps HTTP 401/403 with the generic bad_request wire body to rejected", async () => {
+    for (const status of [401, 403]) {
+      const outcome = await probeBridge(
+        fakeBridge(() =>
+          Promise.resolve({ ok: false, error: { code: "bad_request", message: "refused", status } })
+        )
       );
       expect(outcome).toEqual({ state: "rejected" });
     }

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createBridge, BridgeOfflineError, BridgeShapeError } from "../src/bridge/client";
 
-function stubFetch(handler: (url: string, init: RequestInit) => unknown): typeof fetch {
+function stubFetch(handler: (url: string, init: RequestInit) => unknown, status = 200): typeof fetch {
   return (async (url: string | URL, init?: RequestInit) => {
     const body = handler(String(url), init ?? {});
     if (body instanceof Error) throw body;
-    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
 }
 
@@ -33,10 +33,17 @@ describe("createBridge", () => {
     expect(body).not.toHaveProperty("locator");
   });
 
-  it("returns ok:false with code and message from an error envelope", async () => {
+  it("returns ok:false with code, message, and HTTP status from an error envelope", async () => {
     const b = createBridge({ port: 1, token: "t", fetchImpl: stubFetch(() => ({ ok: false, error: { code: "unknown_style", message: "no such style" } })) });
     const r = await b.search("doe");
-    expect(r).toEqual({ ok: false, error: { code: "unknown_style", message: "no such style" } });
+    expect(r).toEqual({ ok: false, error: { code: "unknown_style", message: "no such style", status: 200 } });
+  });
+
+  it("carries the HTTP 401 status on a generic bad_request body (wrong pairing token)", async () => {
+    const b = createBridge({ port: 8474, token: "wrong-token", fetchImpl: stubFetch(() => ({ ok: false, error: { code: "bad_request", message: "unauthorized" } }), 401) });
+    const r = await b.listStyles();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.status).toBe(401);
   });
 
   it("throws BridgeOfflineError on connection refusal", async () => {

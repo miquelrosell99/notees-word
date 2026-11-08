@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Bridge } from "../bridge/types";
+import type { Bridge, BridgeError } from "../bridge/types";
 import { BridgeOfflineError } from "../bridge/client";
 import type { AddinSettings, SettingsStore } from "../settings/store";
 
@@ -23,13 +23,19 @@ export type ProbeOutcome =
   | { state: "rejected" };
 
 /**
- * Bridge error codes that mean the bridge is alive but refused THIS client:
- * wrong or missing pairing token (HTTP 401/403 semantics) or a failed
- * add-in origin check. Any other ok:false code (not_found, unknown_style,
- * …) proves the bridge is reachable and accepted the token — the command
- * simply failed — so it is NOT a rejection.
+ * Bridge errors that mean the bridge is alive but refused THIS client:
+ * wrong or missing pairing token or a failed add-in origin check. Lane C
+ * answers both with the generic wire body {ok:false,error:{code:"bad_request"}},
+ * so the HTTP status is the authoritative signal; the code set is kept as
+ * belt-and-braces for any endpoint that does set a semantic code. Any other
+ * ok:false (not_found, unknown_style, …) proves the bridge is reachable and
+ * accepted the token — the command simply failed — so it is NOT a rejection.
  */
 const REJECTED_CODES = new Set(["unauthorized", "forbidden", "origin_denied"]);
+
+export function isRejectedError(error: BridgeError): boolean {
+  return error.status === 401 || error.status === 403 || isRejectedCode(error.code);
+}
 
 export function isRejectedCode(code: string): boolean {
   return REJECTED_CODES.has(code);
@@ -46,7 +52,7 @@ export async function probeBridge(bridge: Bridge): Promise<ProbeOutcome> {
   try {
     const res = await bridge.listStyles();
     if (!res.ok) {
-      if (isRejectedCode(res.error.code)) return { state: "rejected" };
+      if (isRejectedError(res.error)) return { state: "rejected" };
       return { state: "paired", bridge, styles: [] };
     }
     return { state: "paired", bridge, styles: res.styles };
