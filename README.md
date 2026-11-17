@@ -1,3 +1,5 @@
+> **Archived (2026-11-17).** This repository has merged into the Notees monorepo — [`miquelrosell99/notees`](https://github.com/miquelrosell99/notees), under `clients/word/` with the full git history (ADR-002, the monorepo reunification). Releases stay available here; new releases, issues, and PRs live in the monorepo, and the per-component pipeline moved with it (tags are now `word-v*`-prefixed there — the release history here predates the move). See `clients/word/` in the monorepo for the live tree.
+
 # Notees for Word
 
 An Office.js task-pane add-in for Word: search your Notees graph, insert live
